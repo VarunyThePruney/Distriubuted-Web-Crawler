@@ -1,65 +1,56 @@
 import requests
 from bs4 import BeautifulSoup
 import redis
+from pybloom_live import BloomFilter
 
-# Redis connection
+from scripts.worker import process
+
 r = redis.Redis(host="localhost", port=6379, db=0)
 
-BASE_URL = "https://arxiv.org/list/cs/new"
-
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; DistributedCrawler/1.0)"
+    "User-Agent": "DistributedCrawler/1.0"
 }
 
-# Strong vs weak keywords
 STRONG_AI_KEYWORDS = [
-    "llm", "large language model", "transformer",
-    "deep learning", "neural network"
+    "llm",
+    "large language model",
+    "transformer",
+    "deep learning",
+    "neural network"
 ]
 
 WEAK_AI_KEYWORDS = [
-    "machine learning", "ai", "artificial intelligence",
-    "nlp", "computer vision", "reinforcement learning"
+    "machine learning",
+    "ai",
+    "artificial intelligence",
+    "nlp",
+    "computer vision",
+    "reinforcement learning"
 ]
+
+bloom = BloomFilter(capacity=500000, error_rate=0.001)
 
 
 def compute_priority(title):
-    """
-    Returns priority between 0 and 100
-    Lower = higher priority
-    """
-    title_lower = title.lower()
+    title = title.lower()
+    score = 50
 
-    score = 50  # base score (mid priority)
-
-    # Strong matches → big boost
     for kw in STRONG_AI_KEYWORDS:
-        if kw in title_lower:
+        if kw in title:
             score -= 20
 
-    # Weak matches → smaller boost
     for kw in WEAK_AI_KEYWORDS:
-        if kw in title_lower:
+        if kw in title:
             score -= 10
 
-    # Clamp between 0 and 100
-    score = max(0, min(score, 100))
-
-    return score
+    return max(0, min(score, 100))
 
 
-def get_papers():
-    print("Fetching paper list...")
-
-    try:
-        response = requests.get(BASE_URL, headers=HEADERS, timeout=10)
-        response.raise_for_status()
-    except requests.RequestException as e:
-        print("Error:", e)
-        return []
-
+def fetch_page(skip):
+    url = f"https://arxiv.org/list/cs/pastweek?skip={skip}&show=100"
+    response = requests.get(url, headers=HEADERS, timeout=10)
     soup = BeautifulSoup(response.text, "html.parser")
-
+    
     papers = []
 
     dl = soup.find("dl")
@@ -71,37 +62,56 @@ def get_papers():
         if not link:
             continue
 
-        paper_id = link.text.strip()
+        pid = link.text.strip()
 
         dd = dt.find_next_sibling("dd")
         title_tag = dd.find("div", class_="list-title")
 
         title = ""
+
         if title_tag:
             title = title_tag.text.replace("Title:", "").strip()
-
-        papers.append((paper_id, title))
+        papers.append((pid, title))
 
     return papers
 
 
+def get_current_skip():
+    value = r.get("current_skip")
+    if value is None:
+        return 0
+    return int(value.decode())
+
+
+def save_next_skip(skip):
+    next_skip = skip + 100
+    if next_skip > 2000:
+        next_skip = 0
+    r.set("current_skip", next_skip)
+
+
 def main():
-    print("Starting producer...")
-
-    papers = get_papers()
-
+    skip = get_current_skip()
+    print(f"Fetching skip={skip}")
+    papers = fetch_page(skip)
+    added = 0
+    skipped = 0
+    
     for pid, title in papers:
+        if pid in bloom:
+            skipped += 1
+            continue
+        priority = compute_priority(title)
+        process.delay(pid)
+        bloom.add(pid)
+        added += 1
+        print(f"Queued: {pid} | priority={priority}")
 
-        if not r.sismember("seen_ids", pid):
+    save_next_skip(skip)
 
-            priority = compute_priority(title)
-
-            r.zadd("paper_queue", {pid: priority})
-            r.sadd("seen_ids", pid)
-
-            print(f"Queued: {pid} | priority={priority} | {title}")
-
-    print("Done.")
+    print("\nDone.")
+    print(f"Added: {added}")
+    print(f"Skipped: {skipped}")
 
 
 if __name__ == "__main__":
