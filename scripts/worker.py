@@ -1,61 +1,45 @@
-import redis
 import time
-from db import *
-from utils import *
 
-r = redis.Redis(host='localhost', port=6379, db=0)
+from scripts.celery_app import celery
+from scripts.db import *
+from scripts.utils import *
 
-
-def process(pid, cursor, conn):
-    paper = parse_abstract(pid, r)
-
-    paper_id = insert_paper(cursor, paper)
-
-    # Authors
-    for a in paper["authors"]:
-        aid = insert_author(cursor, a)
-        link_paper_author(cursor, paper_id, aid)
-
-    # Subjects
-    for s in paper["subjects"]:
-        sid = insert_subject(cursor, s)
-        link_paper_subject(cursor, paper_id, sid)
-
-    # Keywords
-    kws = extract_keywords(paper["abstract"])
-    for k in kws:
-        kid = insert_keyword(cursor, k)
-        link_paper_keyword(cursor, paper_id, kid)
-
-    # Stats
-    stats = compute_stats(paper)
-    insert_stats(cursor, paper_id, stats)
-
-    conn.commit()
-
-
-def main():
+@celery.task(name="scripts.worker.process")
+def process(pid):
     conn = get_connection()
     cursor = conn.cursor()
 
-    print("Worker started...")
+    try:
+        paper = parse_abstract(pid)
+        paper_id = insert_paper(cursor, paper)
 
-    while True:
-        item = r.zpopmin("paper_queue")
+        for a in paper["authors"]:
+            aid = insert_author(cursor, a)
+            link_paper_author(cursor, paper_id, aid)
 
-        if not item:
-            time.sleep(1)
-            continue
-        pid = item[0][0].decode()
+        for s in paper["subjects"]:
+            sid = insert_subject(cursor, s)
+            link_paper_subject(cursor, paper_id, sid)
 
-        try:
-            print(f"Processing: {pid}")
-            process(pid, cursor, conn)
+        kws = extract_keywords(paper["abstract"])
 
-        except Exception as e:
-            print(f"Error: {pid} -> {e}")
-            conn.rollback()
+        for k in kws:
+            kid = insert_keyword(cursor, k)
+            link_paper_keyword(cursor, paper_id, kid)
 
+        stats = compute_stats(paper)
+        insert_stats(cursor, paper_id, stats)
+        conn.commit()
+        print(f"Saved: {pid}")
 
-if __name__ == "__main__":
-    main()
+    except Exception as e:
+        conn.rollback()
+        print(f"Error: {pid} -> {e}")
+        
+    finally:
+        cursor.close()
+        conn.close()
+
+    sleep_time = 15
+    print(f"Sleeping {sleep_time}s")
+    time.sleep(sleep_time)
