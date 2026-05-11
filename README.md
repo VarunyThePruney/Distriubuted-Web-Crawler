@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-# Distriubuted-Web-Crawler
-Distrubuted Web Crawlers that traverse different websites and extracts structured data while handling duplicates
-=======
-````md
 # Distributed AI Research Paper Crawler
 
 A distributed web crawler system designed to crawl and analyze AI-related research papers from arXiv using Celery, Redis, MySQL, Bloom Filters, and Streamlit.
