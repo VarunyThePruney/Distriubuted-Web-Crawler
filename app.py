@@ -1,11 +1,6 @@
 import streamlit as st
 import pandas as pd
 import mysql.connector
-import matplotlib.pyplot as plt
-
-# =========================
-# PAGE CONFIG
-# =========================
 
 st.set_page_config(
     page_title="Distributed Research Crawler",
@@ -16,10 +11,6 @@ st.set_page_config(
 st.title("📚 Distributed Research Paper Dashboard")
 st.markdown("Explore crawled arXiv computer science papers")
 
-# =========================
-# DATABASE CONNECTION
-# =========================
-
 def get_connection():
     return mysql.connector.connect(
         host="localhost",
@@ -28,10 +19,6 @@ def get_connection():
         database="crawler_db"
     )
 
-# =========================
-# LOAD DATA
-# =========================
-
 @st.cache_data
 def load_data():
 
@@ -39,14 +26,40 @@ def load_data():
 
     query = """
     SELECT
-        paper_id,
-        title,
-        authors,
-        abstract,
-        subjects,
-        published,
-        priority_score
-    FROM papers
+        p.id,
+        p.paper_id,
+        p.title,
+        p.abstract,
+        p.published,
+        p.priority_score,
+
+        GROUP_CONCAT(
+            DISTINCT a.name
+            SEPARATOR ', '
+        ) AS authors,
+
+        GROUP_CONCAT(
+            DISTINCT s.name
+            SEPARATOR ', '
+        ) AS subjects
+
+    FROM papers p
+
+    LEFT JOIN paper_authors pa
+        ON p.id = pa.paper_id
+
+    LEFT JOIN authors a
+        ON pa.author_id = a.id
+
+    LEFT JOIN paper_subjects ps
+        ON p.id = ps.paper_id
+
+    LEFT JOIN subjects s
+        ON ps.subject_id = s.id
+
+    GROUP BY p.id
+
+    ORDER BY p.id DESC
     """
 
     df = pd.read_sql(query, conn)
@@ -55,21 +68,13 @@ def load_data():
 
     return df
 
-# =========================
-# LOAD DATABASE
-# =========================
-
 try:
     df = load_data()
 
 except Exception as e:
     st.error(f"Database Error: {e}")
     st.stop()
-
-# =========================
-# SIDEBAR FILTERS
-# =========================
-
+    
 st.sidebar.header("Filters")
 
 # Search bar
@@ -96,10 +101,6 @@ sort_option = st.sidebar.selectbox(
     "Sort By",
     ["Priority", "Newest"]
 )
-
-# =========================
-# FILTERING LOGIC
-# =========================
 
 filtered_df = df.copy()
 
@@ -176,10 +177,6 @@ else:
         ascending=False
     )
 
-# =========================
-# METRICS
-# =========================
-
 st.subheader("Dataset Overview")
 
 col1, col2, col3 = st.columns(3)
@@ -217,28 +214,6 @@ col3.metric(
     ai_count
 )
 
-# =========================
-# ANALYTICS CHART
-# =========================
-
-st.subheader("Priority Distribution")
-
-fig, ax = plt.subplots(figsize=(8, 4))
-
-filtered_df["priority_score"].hist(
-    ax=ax,
-    bins=20
-)
-
-ax.set_xlabel("Priority Score")
-ax.set_ylabel("Paper Count")
-
-st.pyplot(fig)
-
-# =========================
-# PAPER DISPLAY
-# =========================
-
 st.subheader("Papers")
 
 for _, row in filtered_df.iterrows():
@@ -260,8 +235,8 @@ for _, row in filtered_df.iterrows():
         )
 
         st.markdown(
-            f"**Published:** {row['published']}"
-        )
+            f"**Published:** {row['published'].date() if pd.notnull(row['published']) else 'Unknown'}"
+        )  
 
         st.markdown(
             f"**Priority Score:** {row['priority_score']}"
