@@ -1,116 +1,155 @@
 import mysql.connector
 
+DB_CONFIG = {
+    "host": "localhost",
+    "user": "crawler_user",
+    "password": "crawler_pass",
+    "database": "crawler_db"
+}
 
 def get_connection():
     return mysql.connector.connect(
-        host="localhost",
-        user="crawler_user",
-        password="crawler_pass",
-        database="arxiv_db",
-        autocommit=False
+        **DB_CONFIG
     )
-
-
-# ------------------ PAPERS ------------------
 
 def insert_paper(cursor, paper):
     query = """
-    INSERT INTO papers (paper_id, title, abstract, primary_subject, submission_info, url)
-    VALUES (%s, %s, %s, %s, %s, %s)
-    ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)
+    INSERT IGNORE INTO papers
+    (
+        paper_id,
+        title,
+        abstract,
+        published,
+        priority_score
+    )
+    VALUES (%s, %s, %s, %s, %s)
     """
 
-    cursor.execute(query, (
+    values = (
         paper["paper_id"],
         paper["title"],
         paper["abstract"],
-        paper["primary_subject"],
-        paper["submission_info"],
-        paper["url"]
-    ))
+        paper["published"],
+        paper["priority_score"]
+    )
 
-    return cursor.lastrowid
+    cursor.execute(query, values)
 
+    cursor.execute(
+        """
+        SELECT id
+        FROM papers
+        WHERE paper_id=%s
+        """,
+        (paper["paper_id"],)
+    )
 
-# ------------------ AUTHORS ------------------
+    result = cursor.fetchone()
+    return result[0]
 
 def insert_author(cursor, name):
-    query = """
-    INSERT INTO authors (name)
-    VALUES (%s)
-    ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)
-    """
+    cursor.execute(
+        """
+        INSERT IGNORE INTO authors(name)
+        VALUES (%s)
+        """,
+        (name,)
+    )
 
-    cursor.execute(query, (name,))
-    return cursor.lastrowid
+    cursor.execute(
+        """
+        SELECT id
+        FROM authors
+        WHERE name=%s
+        """,
+        (name,)
+    )
+    return cursor.fetchone()[0]
 
+def insert_subject(cursor, subject):
+    cursor.execute(
+        """
+        INSERT IGNORE INTO subjects(name)
+        VALUES (%s)
+        """,
+        (subject,)
+    )
+
+    cursor.execute(
+        """
+        SELECT id
+        FROM subjects
+        WHERE name=%s
+        """,
+        (subject,)
+    )
+
+    return cursor.fetchone()[0]
+
+def insert_keyword(cursor, keyword):
+    cursor.execute(
+        """
+        INSERT IGNORE INTO keywords(word)
+        VALUES (%s)
+        """,
+        (keyword,)
+    )
+
+    cursor.execute(
+        """
+        SELECT id
+        FROM keywords
+        WHERE word=%s
+        """,
+        (keyword,)
+    )
+
+    return cursor.fetchone()[0]
 
 def link_paper_author(cursor, paper_id, author_id):
-    query = """
-    INSERT IGNORE INTO paper_authors (paper_id, author_id)
-    VALUES (%s, %s)
-    """
-
-    cursor.execute(query, (paper_id, author_id))
-
-
-# ------------------ SUBJECTS ------------------
-
-def insert_subject(cursor, name):
-    query = """
-    INSERT INTO subjects (name)
-    VALUES (%s)
-    ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)
-    """
-
-    cursor.execute(query, (name,))
-    return cursor.lastrowid
-
+    cursor.execute(
+        """
+        INSERT IGNORE INTO paper_authors
+        (paper_id, author_id)
+        VALUES (%s, %s)
+        """,
+        (paper_id, author_id)
+    )
 
 def link_paper_subject(cursor, paper_id, subject_id):
-    query = """
-    INSERT IGNORE INTO paper_subjects (paper_id, subject_id)
-    VALUES (%s, %s)
-    """
-
-    cursor.execute(query, (paper_id, subject_id))
-
-
-# ------------------ KEYWORDS ------------------
-
-def insert_keyword(cursor, word):
-    query = """
-    INSERT INTO keywords (word)
-    VALUES (%s)
-    ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)
-    """
-
-    cursor.execute(query, (word,))
-    return cursor.lastrowid
-
-
+    cursor.execute(
+        """
+        INSERT IGNORE INTO paper_subjects
+        (paper_id, subject_id)
+        VALUES (%s, %s)
+        """,
+        (paper_id, subject_id)
+    )
+    
 def link_paper_keyword(cursor, paper_id, keyword_id):
-    query = """
-    INSERT IGNORE INTO paper_keywords (paper_id, keyword_id)
-    VALUES (%s, %s)
-    """
-
-    cursor.execute(query, (paper_id, keyword_id))
-
-
-# ------------------ STATS ------------------
+    cursor.execute(
+        """
+        INSERT IGNORE INTO paper_keywords
+        (paper_id, keyword_id)
+        VALUES (%s, %s)
+        """,
+        (paper_id, keyword_id)
+    )
 
 def insert_stats(cursor, paper_id, stats):
-    query = """
-    INSERT INTO paper_stats (paper_id, word_count, abstract_length, title_length, num_authors)
-    VALUES (%s, %s, %s, %s, %s)
-    ON DUPLICATE KEY UPDATE paper_id=paper_id
-    """
-
-    cursor.execute(query, (
-        paper_id,
-        stats["word_count"],
-        stats["abstract_length"],
-        stats["title_length"],
-        stats["num_authors"]
-    ))
+    cursor.execute(
+        """
+        INSERT IGNORE INTO paper_stats
+        (
+            paper_id,
+            word_count,
+            keyword_count
+        )
+        VALUES (%s, %s, %s)
+        """,
+        (
+            paper_id,
+            stats["word_count"],
+            stats["keyword_count"]
+        )
+    )
