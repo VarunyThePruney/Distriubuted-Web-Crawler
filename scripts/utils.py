@@ -1,5 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
+from datetime import datetime
+import re
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; DistributedCrawler/1.0)"
@@ -89,19 +91,37 @@ def parse_abstract(pid, r=None):
             subject_span.text.strip()
         )
 
-    published = "Unknown"
+    published = None
 
-    history_div = soup.find("div", class_="submission-history")
+    history_div = soup.find(
+        "div",
+        class_="submission-history"
+    )
 
     if history_div:
-        lines = history_div.text.split("\n")
 
-        for line in lines:
-            line = line.strip()
+        text = history_div.text
 
-            if "[" in line and "]" in line:
-                published = line
-                break
+        # Example match:
+        # "8 May 2026"
+
+        match = re.search(
+            r'(\d{1,2} \w+ \d{4})',
+            text
+        )
+
+        if match:
+
+            try:
+
+                published = datetime.strptime(
+                    match.group(1),
+                    "%d %b %Y"
+                )
+
+            except Exception as e:
+
+                print("Date Parse Error:", e)
 
     priority_score = compute_priority(title)
 
