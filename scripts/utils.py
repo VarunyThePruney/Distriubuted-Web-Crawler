@@ -1,120 +1,135 @@
 import requests
-import time
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
-import re
-from collections import Counter
-
-BASE_URL = "https://arxiv.org"
 
 HEADERS = {
-    "User-Agent": "DistributedCrawler/1.0 (educational project)"
+    "User-Agent": "Mozilla/5.0 (compatible; DistributedCrawler/1.0)"
 }
 
+STRONG_AI_KEYWORDS = [
+    "llm",
+    "large language model",
+    "transformer",
+    "deep learning",
+    "neural network"
+]
+
+WEAK_AI_KEYWORDS = [
+    "machine learning",
+    "ai",
+    "artificial intelligence",
+    "nlp",
+    "computer vision",
+    "reinforcement learning"
+]
 
 
-def acquire_rate_limit(r, key="rate_limit", delay=3):
-    """
-    Ensures only ONE request every 'delay' seconds across ALL workers
-    """
-    while True:
-        now = time.time()
+def compute_priority(title):
+    title_lower = title.lower()
+    score = 50
+    for kw in STRONG_AI_KEYWORDS:
+        if kw in title_lower:
+            score -= 20
 
-        last = r.get(key)
-
-        if last is None:
-            r.set(key, now)
-            return
-
-        elapsed = now - float(last)
-
-        if elapsed >= delay:
-            r.set(key, now)
-            return
-
-        time.sleep(delay - elapsed)
+    for kw in WEAK_AI_KEYWORDS:
+        if kw in title_lower:
+            score -= 10
+            
+    score = max(0, min(score, 100))
+    return score
 
 
+def parse_abstract(pid, r=None):
+    url = f"https://arxiv.org/abs/{pid}"
 
-def fetch(url, r):
-    acquire_rate_limit(r, delay=3)  #GLOBAL control
+    try:
+        response = requests.get(
+            url,
+            headers=HEADERS,
+            timeout=10
+        )
+        response.raise_for_status()
 
-    print(f"Fetching: {url}")
+    except requests.RequestException as e:
+        print(f"Request Error: {e}")
+        return None
 
-    res = requests.get(url, headers=HEADERS, timeout=30)
-    res.raise_for_status()
-    return res.text
+    soup = BeautifulSoup(response.text, "html.parser")
 
+    title = ""
 
+    title_tag = soup.find("h1", class_="title")
 
-def safe_text(tag):
-    return tag.text.strip() if tag else ""
+    if title_tag:
+        title = (title_tag.text.replace("Title:", "").strip())
+        
+    abstract = ""
 
+    abstract_tag = soup.find("blockquote",class_="abstract")
 
-def extract_subjects(soup):
-    block = soup.find("div", class_="subheader")
-    if not block:
-        return []
+    if abstract_tag:
+        abstract = (abstract_tag.text.replace("Abstract:", "").strip())
 
-    text = block.text
-    if "Subjects:" in text:
-        text = text.split("Subjects:")[1]
+    authors = []
 
-    return [s.strip() for s in text.split(";")]
+    author_div = soup.find("div", class_="authors")
 
+    if author_div:
 
-def parse_abstract(pid, r):
-    url = urljoin(BASE_URL, f"/abs/{pid}")
-    html = fetch(url, r)
+        author_links = author_div.find_all("a")
 
-    soup = BeautifulSoup(html, "html.parser")
+        for a in author_links:
+            authors.append(a.text.strip())
 
-    title = safe_text(soup.find("h1", class_="title")).replace("Title:", "")
-    abstract = safe_text(soup.find("blockquote", class_="abstract")).replace("Abstract:", "")
+    subjects = []
 
-    authors_block = soup.find("div", class_="authors")
-    authors = [a.text.strip() for a in authors_block.find_all("a")] if authors_block else []
+    subject_span = soup.find("span", class_="primary-subject")
 
-    primary_subject = safe_text(soup.find("span", class_="primary-subject"))
+    if subject_span:
+        subjects.append(
+            subject_span.text.strip()
+        )
 
-    submission = safe_text(soup.find("div", class_="submission-history"))
+    published = "Unknown"
 
-    subjects = extract_subjects(soup)
+    history_div = soup.find("div", class_="submission-history")
+
+    if history_div:
+        lines = history_div.text.split("\n")
+
+        for line in lines:
+            line = line.strip()
+
+            if "[" in line and "]" in line:
+                published = line
+                break
+
+    priority_score = compute_priority(title)
 
     return {
         "paper_id": pid,
         "title": title,
-        "authors": authors,
         "abstract": abstract,
-        "primary_subject": primary_subject,
-        "submission_info": submission,
+        "authors": authors,
         "subjects": subjects,
-        "url": url
+        "published": published,
+        "priority_score": priority_score
     }
 
 
+def extract_keywords(text):
+    words = text.lower().split()
 
-STOPWORDS = set([
-    "the", "and", "is", "in", "to", "of", "for", "with",
-    "on", "this", "that", "we", "by", "an", "be", "are", "as", "from"
-])
+    keywords = []
 
-
-def extract_keywords(text, top_n=5):
-    words = re.findall(r'\b[a-zA-Z]{4,}\b', text.lower())
-    words = [w for w in words if w not in STOPWORDS]
-
-    freq = Counter(words)
-    return [w for w, _ in freq.most_common(top_n)]
-
+    for word in words:
+        if len(word) > 6:
+            keywords.append(word)
+    return list(set(keywords))[:10]
 
 
 def compute_stats(paper):
-    words = paper["abstract"].split()
-
+    abstract = paper["abstract"]
     return {
-        "word_count": len(words),
-        "abstract_length": len(paper["abstract"]),
-        "title_length": len(paper["title"]),
-        "num_authors": len(paper["authors"])
+        "word_count": len(abstract.split()),
+        "keyword_count": len(extract_keywords(abstract))
     }
