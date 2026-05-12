@@ -12,7 +12,7 @@ st.markdown("Explore crawled arXiv computer science papers")
 
 def get_connection():
     return mysql.connector.connect(
-        host="localhost",
+         host="localhost",
         user="crawler_user",
         password="crawler_pass",
         database="crawler_db"
