@@ -2,7 +2,7 @@
 
 A distributed web crawler system designed to crawl and analyze AI-related research papers from arXiv using Celery, Redis, MySQL, Bloom Filters, and Streamlit.
 
-The project demonstrates distributed task processing, intelligent prioritization, duplicate detection, database normalization, and real-time visualization through a dashboard interface.
+The project demonstrates distributed task processing, intelligent prioritization, duplicate detection, database normalization, and real-time visualization through a dashboard interface .
 
 ---
 
