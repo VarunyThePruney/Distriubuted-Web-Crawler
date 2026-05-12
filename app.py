@@ -4,11 +4,10 @@ import mysql.connector
 
 st.set_page_config(
     page_title="Distributed Research Crawler",
-    page_icon="📚",
     layout="wide"
 )
 
-st.title("📚 Distributed Research Paper Dashboard")
+st.title("Distributed Research Paper Dashboard")
 st.markdown("Explore crawled arXiv computer science papers")
 
 def get_connection():
@@ -63,9 +62,7 @@ def load_data():
     """
 
     df = pd.read_sql(query, conn)
-
     conn.close()
-
     return df
 
 try:
